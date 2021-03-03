@@ -7,15 +7,19 @@ function exportDataGrid(doc, dataGrid, options) {
     const dataProvider = dataGrid.getDataProvider();
     return new Promise((resolve) => {
         dataProvider.ready().done(() => {
-            const tables = [];
-            let table = {
-                rect: options.rect,
-                drawTableBorder: options.drawTableBorder,
-                rows: []
-            };
-            tables.push(table);
-
             const columns = dataProvider.getColumns();
+            const pdfGrid = {
+                columns: columns.map(column => { return { name: column.name }; }),
+                splitToPagesByColumns: [],
+                _tables: []
+            };
+
+            if(options.onGridExporting) {
+                options.onGridExporting({ pdfGrid });
+            }
+
+            let splitByColumnTables = createSplitByColumnTables(pdfGrid, options.drawTableBorder, options.rect, false);
+
             const dataRowsCount = dataProvider.getRowsCount();
             for(let rowIndex = 0; rowIndex < dataRowsCount; rowIndex++) {
                 if(options.onRowExporting) {
@@ -26,21 +30,22 @@ function exportDataGrid(doc, dataGrid, options) {
                         if(!isDefined(tableRect)) {
                             throw 'tableRect is required';
                         }
-                        table = {
-                            rect: tableRect,
-                            drawTableBorder: options.drawTableBorder,
-                            rows: []
-                        };
-                        if(addPage === true) {
-                            table.drawOnNewPage = true;
-                        }
-                        tables.push(table);
+                        splitByColumnTables = createSplitByColumnTables(pdfGrid, options.drawTableBorder, tableRect, addPage === true);
                     }
                 }
 
-                const row = [];
-                table.rows.push(row);
+                let table;
+                let row;
+
                 for(let cellIndex = 0; cellIndex < columns.length; cellIndex++) {
+                    splitByColumnTables.forEach((splitByColumnTable) => {
+                        if(cellIndex === splitByColumnTable.columnIndex) {
+                            table = splitByColumnTable;
+                            row = [];
+                            table.rows.push(row);
+                        }
+                    });
+
                     const cellData = dataProvider.getCellData(rowIndex, cellIndex, true);
                     const pdfCell = {
                         text: cellData.value
@@ -74,7 +79,7 @@ function exportDataGrid(doc, dataGrid, options) {
                 }
             }
 
-            tables.forEach((table) => {
+            pdfGrid._tables.forEach((table) => {
                 if(table.drawOnNewPage === true) {
                     doc.addPage();
                 }
@@ -83,6 +88,36 @@ function exportDataGrid(doc, dataGrid, options) {
             resolve();
         });
     });
+}
+
+function createSplitByColumnTables(pdfGrid, drawTableBorder, firstTableRect, firstTableOnNewPage) {
+    const result = [
+        {
+            drawTableBorder,
+            drawOnNewPage: firstTableOnNewPage,
+            rect: firstTableRect,
+            columnIndex: 0,
+            rows: []
+        }
+    ];
+
+    if(isDefined(pdfGrid.splitToPagesByColumns)) {
+        pdfGrid.splitToPagesByColumns.forEach((splitToPagesByColumn) => {
+            result.push({
+                drawTableBorder: drawTableBorder,
+                drawOnNewPage: splitToPagesByColumn.drawOnNewPage,
+                rect: splitToPagesByColumn.tableRect,
+                columnIndex: splitToPagesByColumn.columnIndex,
+                rows: []
+            });
+        });
+    }
+
+    result.forEach((table) => {
+        pdfGrid._tables.push(table);
+    });
+
+    return result;
 }
 
 function drawTable(doc, table) {
